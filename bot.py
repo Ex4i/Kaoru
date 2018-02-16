@@ -5,6 +5,12 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import logging
 import json
 import urllib.request
+import os.path
+
+registered_filename = "registered_users.json"
+links_filename = "links.json"
+lsk_step = 1
+lsk_price = 0
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -12,6 +18,16 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
+registered_users = json.load(open(registered_filename, 'r')) if os.path.isfile(registered_filename) else []
+links = json.load(open(links_filename, 'r')) if os.path.isfile(links_filename) else []
+
+def update_registered_users():
+    with open(registered_filename, 'w') as file:
+        json.dump(registered_users, file)
+
+def update_links():
+    with open(links_filename, 'w') as file:
+        json.dump(links, file)
 
 # Define a few command handlers. These usually take the two arguments bot and
 # update. Error handlers also receive the raised TelegramError object in error.
@@ -26,9 +42,39 @@ def help(bot, update):
 
 def lisk_bb(bot, update):
     response = json.loads(urllib.request.urlopen("https://bitbay.net/API/Public/LSKPLN/ticker.json").read().decode("utf-8"))
-    response = "Current LSK price is {}.".format(response["last"])
-    update.message.reply_text(response)
+    update.message.reply_text("Current LSK price is {}.".format(response["last"]))
 
+def register_user(bot, update):
+    conversation = str(update.message.chat_id)
+    if not conversation in registered_users:
+        registered_users.append(conversation)
+        update_registered_users()
+    update.message.reply_text("You have been registered for LSK price updates! You can unsubscribe at any moment using command /unsubscribe")
+
+def unregister_user(bot, update):
+    conversation = str(update.message.chat_id)
+    if conversation in registered_users:
+        registered_users.remove(conversation)
+        update_registered_users()
+    update.message.reply_text("You have been unregistered for LSK price updates! You can subscribe back at any moment using command /subscribe")
+
+def remember(bot, update, args):
+    node = {
+        "user": str(update.message.chat_id),
+        "link": args.pop(0),
+        "category": args.pop(0),
+        "desc": " ".join(args)
+    }
+    links.append(node)
+    update_links()
+    update.message.reply_text("Link saved!")
+
+def remind(bot, update, args):
+    text = ""
+    user = str(update.message.chat_id)
+    for node in [node for node in links if node["user"] == user and node["category"] == args[0]]:
+        text += node["link"] + "\n" + node["desc"] + "\n\n"
+    update.message.reply_text(text)
 
 def echo(bot, update):
     """Echo the user message."""
@@ -52,6 +98,10 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help))
     dp.add_handler(CommandHandler("lisk", lisk_bb))
+    dp.add_handler(CommandHandler("subscribe", register_user))
+    dp.add_handler(CommandHandler("unsubscribe", unregister_user))
+    dp.add_handler(CommandHandler("remember", remember, pass_args=True))
+    dp.add_handler(CommandHandler("remind", remind, pass_args=True))
 
     # on noncommand i.e message - echo the message on Telegram
     dp.add_handler(MessageHandler(Filters.text, echo))
